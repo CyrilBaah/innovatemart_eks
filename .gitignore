@@ -1,0 +1,96 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform/terraform.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+tfplan
+terraform.tfstate.d/
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+*.zip
+grading.json
+
+# Lambda deployment packages
+lambda_function.zip
+
+# AWS
+.aws/
+aws-credentials
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node modules (if any JS tools are used)
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.env/
+
+# Helm
+charts/*/Chart.lock
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Sensitive files
+secrets.yaml
+*-secret.yaml
+*-secrets.yaml
+
+# Backup files
+*.bak
+*.backup
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# Test files
+test-*.txt
+test-*.jpg
+test-*.png
