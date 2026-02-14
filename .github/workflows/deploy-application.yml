@@ -1,0 +1,291 @@
+name: 'Deploy Application (Kubernetes)'
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'k8s-manifests/**'
+      - '.github/workflows/deploy-application.yml'
+  
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+
+env:
+  CLUSTER_NAME: 'bedrock-eks'
+  APP_NAMESPACE: 'retail-app'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-application:
+    name: 'Deploy Retail Store Application'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.30.0'
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: '3.12.0'
+    
+    - name: Verify EKS Cluster Exists
+      id: check-cluster
+      run: |
+        echo "🔍 Checking if EKS cluster exists..."
+        if aws eks describe-cluster --name ${{ env.CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }} > /dev/null 2>&1; then
+          echo "✅ EKS cluster '${{ env.CLUSTER_NAME }}' found"
+          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ EKS cluster '${{ env.CLUSTER_NAME }}' not found"
+          echo "cluster_exists=false" >> $GITHUB_OUTPUT
+          echo "::error::EKS cluster does not exist. Please run the 'Deploy Infrastructure' workflow first."
+          exit 1
+        fi
+    
+    - name: Update kubeconfig
+      if: steps.check-cluster.outputs.cluster_exists == 'true'
+      run: |
+        echo "🔧 Updating kubeconfig for cluster access..."
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+        echo "✅ Kubeconfig updated"
+    
+    - name: Verify cluster connectivity
+      run: |
+        echo "🔗 Testing cluster connectivity..."
+        kubectl cluster-info
+        kubectl get nodes
+        echo "✅ Cluster is accessible"
+    
+    - name: Create application namespace
+      run: |
+        echo "📦 Creating namespace '${{ env.APP_NAMESPACE }}'..."
+        kubectl apply -f k8s-manifests/namespace.yaml
+        echo "✅ Namespace ready"
+    
+    - name: Add Helm repositories
+      run: |
+        echo "📚 Adding Helm repositories..."
+        helm repo add eks https://aws.github.io/eks-charts
+        helm repo add aws-for-fluent-bit https://aws.github.io/eks-charts
+        helm repo update
+        echo "✅ Helm repositories updated"
+    
+    - name: Deploy retail store UI service
+      run: |
+        echo "🚀 Deploying retail store UI service..."
+        kubectl apply -n ${{ env.APP_NAMESPACE }} -f - <<EOF
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: ui
+          namespace: ${{ env.APP_NAMESPACE }}
+          labels:
+            app: ui
+            app.kubernetes.io/name: retail-store-ui
+            app.kubernetes.io/component: frontend
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: ui
+          template:
+            metadata:
+              labels:
+                app: ui
+                app.kubernetes.io/name: retail-store-ui
+                app.kubernetes.io/component: frontend
+            spec:
+              containers:
+              - name: ui
+                image: public.ecr.aws/aws-containers/retail-store-sample-ui:latest
+                imagePullPolicy: Always
+                ports:
+                - name: http
+                  containerPort: 8080
+                  protocol: TCP
+                env:
+                - name: PORT
+                  value: "8080"
+                resources:
+                  requests:
+                    memory: "256Mi"
+                    cpu: "100m"
+                  limits:
+                    memory: "512Mi"
+                    cpu: "250m"
+                livenessProbe:
+                  httpGet:
+                    path: /
+                    port: 8080
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: 8080
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+        ---
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ui
+          namespace: ${{ env.APP_NAMESPACE }}
+          labels:
+            app: ui
+        spec:
+          type: LoadBalancer
+          selector:
+            app: ui
+          ports:
+          - name: http
+            port: 80
+            targetPort: 8080
+            protocol: TCP
+        EOF
+        echo "✅ UI service deployed"
+    
+    - name: Wait for deployment to be ready
+      run: |
+        echo "⏳ Waiting for deployment to be ready..."
+        kubectl wait --for=condition=available --timeout=300s deployment/ui -n ${{ env.APP_NAMESPACE }}
+        echo "✅ Deployment is ready"
+    
+    - name: Get deployment status
+      run: |
+        echo "📊 Deployment Status:"
+        echo ""
+        echo "=== Pods ==="
+        kubectl get pods -n ${{ env.APP_NAMESPACE }} -o wide
+        echo ""
+        echo "=== Services ==="
+        kubectl get services -n ${{ env.APP_NAMESPACE }} -o wide
+        echo ""
+        echo "=== Deployments ==="
+        kubectl get deployments -n ${{ env.APP_NAMESPACE }}
+    
+    - name: Get application URL
+      run: |
+        echo "🌐 Getting application URL..."
+        echo ""
+        echo "Waiting for LoadBalancer to be provisioned (this may take a few minutes)..."
+        
+        # Wait up to 5 minutes for the LoadBalancer to get an external IP
+        for i in {1..30}; do
+          LB_URL=$(kubectl get svc ui -n ${{ env.APP_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -n "$LB_URL" ]; then
+            echo "✅ Application is accessible at: http://$LB_URL"
+            echo ""
+            echo "===================================="
+            echo "🎉 Deployment Summary"
+            echo "===================================="
+            echo "Application URL: http://$LB_URL"
+            echo "Namespace: ${{ env.APP_NAMESPACE }}"
+            echo "Environment: ${{ inputs.environment || 'production' }}"
+            echo "===================================="
+            break
+          fi
+          echo "⏳ Waiting for LoadBalancer... (attempt $i/30)"
+          sleep 10
+        done
+        
+        if [ -z "$LB_URL" ]; then
+          echo "⚠️ LoadBalancer URL not available yet. Check later with:"
+          echo "kubectl get svc ui -n ${{ env.APP_NAMESPACE }}"
+        fi
+    
+    - name: Deployment Summary
+      if: always()
+      run: |
+        echo ""
+        echo "===================================="
+        echo "📋 Deployment Summary"
+        echo "===================================="
+        echo "Cluster: ${{ env.CLUSTER_NAME }}"
+        echo "Namespace: ${{ env.APP_NAMESPACE }}"
+        echo "Environment: ${{ inputs.environment || 'production' }}"
+        echo ""
+        echo "To access your application:"
+        echo "1. Get the LoadBalancer URL:"
+        echo "   kubectl get svc ui -n ${{ env.APP_NAMESPACE }}"
+        echo ""
+        echo "2. View application logs:"
+        echo "   kubectl logs -f -l app=ui -n ${{ env.APP_NAMESPACE }}"
+        echo ""
+        echo "3. Check pod status:"
+        echo "   kubectl get pods -n ${{ env.APP_NAMESPACE }}"
+        echo "===================================="
+
+  validate-deployment:
+    name: 'Validate Deployment'
+    runs-on: ubuntu-latest
+    needs: deploy-application
+    if: success()
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.30.0'
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ env.CLUSTER_NAME }}
+    
+    - name: Run health checks
+      run: |
+        echo "🏥 Running health checks..."
+        echo ""
+        
+        # Check if pods are running
+        POD_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app=ui -o jsonpath='{.items[0].status.phase}')
+        if [ "$POD_STATUS" == "Running" ]; then
+          echo "✅ Pod is running"
+        else
+          echo "❌ Pod status: $POD_STATUS"
+          exit 1
+        fi
+        
+        # Check if service has endpoints
+        ENDPOINTS=$(kubectl get endpoints ui -n ${{ env.APP_NAMESPACE }} -o jsonpath='{.subsets[*].addresses[*].ip}')
+        if [ -n "$ENDPOINTS" ]; then
+          echo "✅ Service has endpoints: $ENDPOINTS"
+        else
+          echo "❌ Service has no endpoints"
+          exit 1
+        fi
+        
+        echo ""
+        echo "✅ All health checks passed!"

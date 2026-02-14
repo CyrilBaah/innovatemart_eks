@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-  default     = "project-bedrock-cluster"
+  default     = "bedrock-eks"
 }
 
 variable "vpc_name" {
