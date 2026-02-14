@@ -18,7 +18,7 @@ terraform {
 
   # Remote state backend configuration
   backend "s3" {
-    bucket         = "bedrock-terraform-state-bucket"
+    bucket         = "bedrock-tfstate-alt-soe-025-0223"
     key            = "project-bedrock/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "bedrock-terraform-state-lock"

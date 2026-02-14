@@ -20,8 +20,8 @@ on:
 env:
   TF_VERSION: '1.6.0'
   TERRAFORM_DIR: './terraform'
-  STATE_BUCKET: 'bedrock-terraform-state-bucket'
-  LOCK_TABLE: 'bedrock-terraform-state-lock'
+  STATE_BUCKET: 'bedrock-tfstate-alt-soe-025-0223'
+  LOCK_TABLE: 'bedrock-terraform-lock'
   CLUSTER_NAME: 'project-bedrock-cluster'
 
 permissions:
@@ -69,7 +69,9 @@ jobs:
         # Enable encryption
         aws s3api put-bucket-encryption --bucket "${{ env.STATE_BUCKET }}" \
           --server-side-encryption-configuration '{
-            "Rules": [{
+            "Rules": [{            git add .gitignore README.md terraform/ lambda/ .github/workflows/deploy-infrastructure.yml
+            git commit -m "feat: add infrastructure deployment with Terraform and GitHub Actions"
+            git push origin main
               "ApplyServerSideEncryptionByDefault": {
                 "SSEAlgorithm": "AES256"
               },
@@ -130,7 +132,7 @@ jobs:
           // Split the Terraform plan into chunks if it's too big
           var plans = chunkSubstr(plan, maxGitHubBodyCharacters); 
           for (let i = 0; i < plans.length; i++) {
-            const output = `### 🏗️ Terraform Plan Output (Part ${i + 1} of ${plans.length})
+            const output = `### Terraform Plan Output (Part ${i + 1} of ${plans.length})
             
             \`\`\`terraform
             ${plans[i]}
@@ -178,23 +180,28 @@ jobs:
     
     - name: Setup Terraform Backend
       run: |
-        echo "🔧 Setting up Terraform backend (S3 + DynamoDB)..."
+        echo "Setting up Terraform backend (S3 + DynamoDB)..."
         
         # Create S3 bucket for Terraform state if it doesn't exist
         if aws s3api head-bucket --bucket "${{ env.STATE_BUCKET }}" 2>/dev/null; then
-          echo "✅ S3 bucket already exists"
+          echo "S3 bucket already exists"
         else
-          echo "📦 Creating S3 bucket..."
-          aws s3api create-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }}
+          echo "Creating S3 bucket..."
+          if [ "${{ secrets.AWS_REGION }}" = "us-east-1" ]; then
+            aws s3api create-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }}
+          else
+            aws s3api create-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }} \
+              --create-bucket-configuration LocationConstraint=${{ secrets.AWS_REGION }}
+          fi
         fi
         
         # Enable versioning
-        echo "🔄 Enabling versioning..."
+        echo "Enabling versioning..."
         aws s3api put-bucket-versioning --bucket "${{ env.STATE_BUCKET }}" \
           --versioning-configuration Status=Enabled
         
         # Enable encryption
-        echo "🔒 Enabling encryption..."
+        echo "Enabling encryption..."
         aws s3api put-bucket-encryption --bucket "${{ env.STATE_BUCKET }}" \
           --server-side-encryption-configuration '{
             "Rules": [{
@@ -206,16 +213,16 @@ jobs:
           }'
         
         # Block public access
-        echo "🔐 Blocking public access..."
+        echo "Blocking public access..."
         aws s3api put-public-access-block --bucket "${{ env.STATE_BUCKET }}" \
           --public-access-block-configuration \
           "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
         
         # Create DynamoDB table for state locking if it doesn't exist
         if aws dynamodb describe-table --table-name "${{ env.LOCK_TABLE }}" --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
-          echo "✅ DynamoDB table already exists"
+          echo "DynamoDB table already exists"
         else
-          echo "💾 Creating DynamoDB table for state locking..."
+          echo "Creating DynamoDB table for state locking..."
           aws dynamodb create-table \
             --table-name "${{ env.LOCK_TABLE }}" \
             --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -225,30 +232,30 @@ jobs:
             --tags Key=Project,Value=Bedrock Key=ManagedBy,Value=Terraform
         fi
         
-        echo "✅ Backend setup complete!"
+        echo "Backend setup complete!"
     
     - name: Terraform Init
       run: |
-        echo "🚀 Initializing Terraform..."
+        echo "Initializing Terraform..."
         terraform init
     
     - name: Terraform Apply
       run: |
-        echo "🏗️ Deploying infrastructure..."
+        echo "Deploying infrastructure..."
         terraform apply -auto-approve
       continue-on-error: false
     
     - name: Deployment Summary
       if: success()
       run: |
-        echo "✅ Infrastructure deployment completed successfully!"
+        echo "Infrastructure deployment completed successfully!"
         echo ""
-        echo "📋 Deployment Details:"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Deployment Details:"
+        echo "========================================================"
         terraform output
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "========================================================"
         echo ""
-        echo "📋 Next steps:"
+        echo "Next steps:"
         echo "1. Review the infrastructure outputs above"
         echo "2. Deploy the application using the 'Deploy Application' workflow"
         echo "3. Verify resources in AWS Console"
