@@ -18,7 +18,7 @@ module "eks" {
   # EKS Managed Node Groups
   eks_managed_node_groups = {
     main = {
-      name           = "${var.cluster_name}-main"
+      name           = "ng1"
       instance_types = var.instance_types
       capacity_type  = var.capacity_type
 
