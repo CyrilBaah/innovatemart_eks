@@ -77,66 +77,6 @@ resource "aws_eks_access_entry" "developer" {
   depends_on = [module.eks]
 }
 
-# RBAC Configuration for Kubernetes
-resource "kubernetes_cluster_role" "developer_readonly" {
-  metadata {
-    name = "bedrock-developer-readonly"
-  }
-
-  rule {
-    api_groups = [""]
-    resources  = ["pods", "services", "endpoints", "persistentvolumeclaims", "events"]
-    verbs      = ["get", "list", "watch"]
-  }
-
-  rule {
-    api_groups = ["apps"]
-    resources  = ["deployments", "replicasets", "statefulsets", "daemonsets"]
-    verbs      = ["get", "list", "watch"]
-  }
-
-  rule {
-    api_groups = ["extensions"]
-    resources  = ["ingresses"]
-    verbs      = ["get", "list", "watch"]
-  }
-
-  rule {
-    api_groups = ["networking.k8s.io"]
-    resources  = ["ingresses", "networkpolicies"]
-    verbs      = ["get", "list", "watch"]
-  }
-
-  rule {
-    api_groups = ["metrics.k8s.io"]
-    resources  = ["pods", "nodes"]
-    verbs      = ["get", "list"]
-  }
-
-  depends_on = [module.eks]
-}
-
-# RBAC ClusterRoleBinding for developers group
-resource "kubernetes_cluster_role_binding" "developer_readonly" {
-  metadata {
-    name = "bedrock-developer-readonly"
-  }
-
-  role_ref {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.developer_readonly.metadata[0].name
-  }
-
-  subject {
-    kind      = "Group"
-    name      = "bedrock-developers"
-    api_group = "rbac.authorization.k8s.io"
-  }
-
-  depends_on = [kubernetes_cluster_role.developer_readonly]
-}
-
 # IAM role for Lambda function
 resource "aws_iam_role" "lambda_role" {
   name = "bedrock-lambda-execution-role"
