@@ -50,10 +50,11 @@ resource "aws_security_group" "rds" {
   })
 }
 
-# CloudWatch Log Group for EKS cluster (if not automatically created)
-resource "aws_cloudwatch_log_group" "eks_cluster" {
-  name              = "/aws/eks/${var.cluster_name}/cluster"
-  retention_in_days = 7
-
-  tags = local.common_tags
-}
+# CloudWatch Log Group for EKS cluster 
+# NOTE: EKS automatically creates log groups when cluster_enabled_log_types is set
+# Commenting out to avoid "already exists" error
+# resource "aws_cloudwatch_log_group" "eks_cluster" {
+#   name              = "/aws/eks/${var.cluster_name}/cluster"
+#   retention_in_days = 7
+#   tags = local.common_tags
+# }

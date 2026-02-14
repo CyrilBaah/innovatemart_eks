@@ -1,6 +1,6 @@
 # S3 bucket for assets
 resource "aws_s3_bucket" "assets_bucket" {
-  bucket = "bedrock-assets-${var.student_id}"
+  bucket = "bedrock-assets-${lower(replace(var.student_id, "/", "-"))}"
 
   tags = {
     Project = "Bedrock"

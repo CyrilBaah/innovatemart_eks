@@ -66,6 +66,10 @@ module "eks" {
   # We'll configure the developer access separately
   enable_cluster_creator_admin_permissions = true
 
+  # Disable KMS encryption to avoid permission issues with GitHub Actions user
+  create_kms_key = false
+  cluster_encryption_config = {}
+
   # CloudWatch logging
   cluster_enabled_log_types = var.enable_control_plane_logging ? var.control_plane_log_types : []
 
