@@ -90,7 +90,6 @@ output "grading_info" {
     vpc_id             = module.vpc.vpc_id
     assets_bucket_name = aws_s3_bucket.assets_bucket.id
     lambda_function    = aws_lambda_function.asset_processor.function_name
-    developer_user     = aws_iam_user.developer.name
-    app_namespace      = var.app_namespace
+    developer_user     = aws_iam_user.developer.name    developer_user_original = var.developer_username    app_namespace      = var.app_namespace
   }
 }

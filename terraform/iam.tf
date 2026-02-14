@@ -1,17 +1,34 @@
-# Developer IAM User
+# Data sources
+data "aws_caller_identity" "current" {}
+
+# Generate random suffix for unique resource naming
+resource "random_id" "policy_suffix" {
+  byte_length = 4
+}
+
+# Developer IAM User with unique naming to avoid conflicts
 resource "aws_iam_user" "developer" {
-  name = var.developer_username
+  name = "${var.developer_username}-${random_id.policy_suffix.hex}"
   path = "/"
 
   tags = {
-    Project = "Bedrock"
-    Role    = "Developer"
+    Project     = "Bedrock"
+    Role        = "Developer"
+    OriginalName = var.developer_username
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 }
 
 # Create access key for the developer user
 resource "aws_iam_access_key" "developer_key" {
   user = aws_iam_user.developer.name
+  
+  lifecycle {
+    ignore_changes = []
+  }
 }
 
 # Attach ReadOnlyAccess managed policy to developer user
@@ -20,9 +37,14 @@ resource "aws_iam_user_policy_attachment" "developer_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
-# Custom policy for S3 bucket access
+# Generate random suffix for unique policy naming
+resource "random_id" "policy_suffix" {
+  byte_length = 4
+}
+
+# Custom policy for S3 bucket access with unique naming
 resource "aws_iam_policy" "s3_bucket_access" {
-  name        = "bedrock-s3-bucket-access"
+  name        = "bedrock-s3-bucket-access-${random_id.policy_suffix.hex}"
   description = "Allow PutObject access to the assets S3 bucket"
 
   policy = jsonencode({
@@ -77,9 +99,9 @@ resource "aws_eks_access_entry" "developer" {
   depends_on = [module.eks]
 }
 
-# IAM role for Lambda function
+# IAM role for Lambda function with unique naming
 resource "aws_iam_role" "lambda_role" {
-  name = "bedrock-lambda-execution-role"
+  name = "bedrock-lambda-execution-role-${random_id.policy_suffix.hex}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -105,9 +127,9 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Custom policy for Lambda to access CloudWatch Logs
+# Custom policy for Lambda to access CloudWatch Logs with unique naming
 resource "aws_iam_policy" "lambda_cloudwatch" {
-  name        = "bedrock-lambda-cloudwatch"
+  name        = "bedrock-lambda-cloudwatch-${random_id.policy_suffix.hex}"
   description = "CloudWatch Logs access for Lambda function"
 
   policy = jsonencode({
