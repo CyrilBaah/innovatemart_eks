@@ -74,6 +74,8 @@ module "eks" {
   cluster_enabled_log_types = var.enable_control_plane_logging ? var.control_plane_log_types : []
 
   # EKS Addons
+  # NOTE: Only essential addons included to avoid timeouts
+  # EBS CSI Driver and CloudWatch Observability will be installed post-deployment
   cluster_addons = {
     coredns = {
       most_recent = true
@@ -84,15 +86,11 @@ module "eks" {
     vpc-cni = {
       most_recent = true
     }
-    # EBS CSI Driver for persistent volumes
-    aws-ebs-csi-driver = {
-      most_recent = true
-    }
-    # CloudWatch Observability addon
-    amazon-cloudwatch-observability = {
-      most_recent = true
-    }
   }
+  
+  # Removed addons (install manually after cluster creation):
+  # - aws-ebs-csi-driver (for persistent volumes) - install via: kubectl or eksctl
+  # - amazon-cloudwatch-observability (for monitoring) - install via addon API after cluster ready
 
   # Extend cluster security group rules
   cluster_security_group_additional_rules = {

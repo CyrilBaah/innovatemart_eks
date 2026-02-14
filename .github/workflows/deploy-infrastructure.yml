@@ -249,6 +249,34 @@ jobs:
         terraform apply -auto-approve
       continue-on-error: false
     
+    - name: Install EBS CSI Driver Addon
+      if: success()
+      run: |
+        echo "Installing EBS CSI Driver addon..."
+        
+        # Check if addon exists
+        if aws eks describe-addon \
+          --cluster-name ${{ env.CLUSTER_NAME }} \
+          --addon-name aws-ebs-csi-driver \
+          --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          echo "Addon already exists, skipping"
+        else
+          echo "Creating EBS CSI Driver addon..."
+          aws eks create-addon \
+            --cluster-name ${{ env.CLUSTER_NAME }} \
+            --addon-name aws-ebs-csi-driver \
+            --region ${{ secrets.AWS_REGION }} \
+            --resolve-conflicts OVERWRITE || true
+          
+          echo "Waiting for addon to be active (this may take 10-15 minutes)..."
+          aws eks wait addon-active \
+            --cluster-name ${{ env.CLUSTER_NAME }} \
+            --addon-name aws-ebs-csi-driver \
+            --region ${{ secrets.AWS_REGION }} || echo "Addon creation timed out but may still be installing"
+          
+          echo "EBS CSI Driver addon installation initiated"
+        fi
+    
     - name: Deployment Summary
       if: success()
       run: |
@@ -261,5 +289,6 @@ jobs:
         echo ""
         echo "Next steps:"
         echo "1. Review the infrastructure outputs above"
-        echo "2. Deploy the application using the 'Deploy Application' workflow"
-        echo "3. Verify resources in AWS Console"
+        echo "2. Wait for EBS CSI Driver addon to be fully active (~5 minutes)"
+        echo "3. Deploy the application using the 'Deploy Application' workflow"
+        echo "4. Verify resources in AWS Console"
