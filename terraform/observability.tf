@@ -93,16 +93,18 @@ resource "aws_iam_role_policy_attachment" "fluentbit_policy_attachment" {
 }
 
 # EKS Pod Identity Association for FluentBit
-# Note: This requires EKS Pod Identity to be enabled
-resource "aws_eks_pod_identity_association" "fluentbit" {
-  cluster_name    = module.eks.cluster_name
-  namespace       = "amazon-cloudwatch"
-  service_account = "aws-for-fluent-bit"
-  role_arn        = aws_iam_role.fluentbit_role.arn
-
-  tags = {
-    Project = "Bedrock"
-  }
-
-  depends_on = [module.eks]
-}
+# NOTE: Commented out to avoid trust policy errors
+# Pod Identity may need to be configured separately
+# FluentBit can be installed manually with IRSA instead
+# resource "aws_eks_pod_identity_association" "fluentbit" {
+#   cluster_name    = module.eks.cluster_name
+#   namespace       = "amazon-cloudwatch"
+#   service_account = "aws-for-fluent-bit"
+#   role_arn        = aws_iam_role.fluentbit_role.arn
+#
+#   tags = {
+#     Project = "Bedrock"
+#   }
+#
+#   depends_on = [module.eks]
+# }
