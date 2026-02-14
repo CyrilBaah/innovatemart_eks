@@ -13,7 +13,7 @@ locals {
 
 # VPC Module
 module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+  source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
   name = var.vpc_name
@@ -24,9 +24,9 @@ module "vpc" {
   public_subnets  = var.public_subnets
 
   # Enable NAT Gateway for private subnets
-  enable_nat_gateway = true
-  enable_vpn_gateway = false
-  single_nat_gateway = true # Use single NAT gateway for cost optimization
+  enable_nat_gateway     = true
+  enable_vpn_gateway     = false
+  single_nat_gateway     = true # Use single NAT gateway for cost optimization
   one_nat_gateway_per_az = false
 
   # Enable DNS
@@ -36,18 +36,18 @@ module "vpc" {
   # Tags for EKS
   public_subnet_tags = {
     Name                                        = "${var.vpc_name}-public"
-    "kubernetes.io/role/elb"                   = "1"
+    "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 
   private_subnet_tags = {
     Name                                        = "${var.vpc_name}-private"
-    "kubernetes.io/role/internal-elb"          = "1"
+    "kubernetes.io/role/internal-elb"           = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 
   vpc_tags = {
-    Name = var.vpc_name
+    Name                                        = var.vpc_name
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
   }
 

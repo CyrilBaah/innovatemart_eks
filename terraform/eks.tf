@@ -37,7 +37,7 @@ module "eks" {
 
       # Remote access (SSH)
       remote_access = {
-        ec2_ssh_key = null
+        ec2_ssh_key               = null
         source_security_group_ids = []
       }
 
@@ -67,7 +67,7 @@ module "eks" {
   enable_cluster_creator_admin_permissions = true
 
   # Disable KMS encryption to avoid permission issues with GitHub Actions user
-  create_kms_key = false
+  create_kms_key            = false
   cluster_encryption_config = {}
 
   # CloudWatch logging
@@ -87,7 +87,7 @@ module "eks" {
       most_recent = true
     }
   }
-  
+
   # Removed addons (install manually after cluster creation):
   # - aws-ebs-csi-driver (for persistent volumes) - install via: kubectl or eksctl
   # - amazon-cloudwatch-observability (for monitoring) - install via addon API after cluster ready
@@ -131,7 +131,7 @@ module "eks" {
       type        = "ingress"
       self        = true
     }
-    
+
     # Allow access to EFS (if needed for persistent storage)
     ingress_efs_tcp = {
       description = "EFS mount target"

@@ -1,0 +1,393 @@
+name: 'Destroy Infrastructure (Terraform)'
+
+on:
+  workflow_dispatch:  # Manual trigger only for safety
+    inputs:
+      confirmation:
+        description: 'Type "DESTROY" to confirm infrastructure destruction'
+        required: true
+        type: string
+      destroy_backend:
+        description: 'Also destroy Terraform backend (S3 bucket and DynamoDB table)?'
+        required: false
+        default: false
+        type: boolean
+      cluster_name:
+        description: 'EKS Cluster name to destroy (leave empty to use default from env)'
+        required: false
+        type: string
+
+env:
+  TF_VERSION: '1.6.0'
+  TERRAFORM_DIR: './terraform'
+  STATE_BUCKET: 'bedrock-tfstate-alt-soe-025-0223'
+  LOCK_TABLE: 'bedrock-terraform-state-lock'
+  CLUSTER_NAME: 'project-bedrock-cluster'
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+jobs:
+  pre-destroy-checks:
+    name: 'Pre-Destroy Checks'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Validate Confirmation Input
+      run: |
+        if [ "${{ github.event.inputs.confirmation }}" != "DESTROY" ]; then
+          echo "❌ ERROR: Confirmation input must be exactly 'DESTROY' to proceed"
+          echo "Provided: '${{ github.event.inputs.confirmation }}'"
+          exit 1
+        fi
+        echo "✓ Confirmation validated"
+
+    - name: Set Cluster Name
+      id: cluster
+      run: |
+        CLUSTER="${{ github.event.inputs.cluster_name }}"
+        if [ -z "$CLUSTER" ]; then
+          CLUSTER="${{ env.CLUSTER_NAME }}"
+        fi
+        echo "cluster_name=$CLUSTER" >> $GITHUB_OUTPUT
+        echo "Using cluster name: $CLUSTER"
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Check Infrastructure Exists
+      id: check
+      run: |
+        echo "Checking if infrastructure exists..."
+        
+        # Check if EKS cluster exists
+        if aws eks describe-cluster --name "${{ steps.cluster.outputs.cluster_name }}" --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          echo "✓ EKS cluster found"
+          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ EKS cluster not found"
+          echo "cluster_exists=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Check if Terraform state exists
+        if aws s3api head-object --bucket "${{ env.STATE_BUCKET }}" --key "bedrock/terraform.tfstate" 2>/dev/null; then
+          echo "✓ Terraform state found"
+          echo "state_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ Terraform state not found"
+          echo "state_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+    outputs:
+      cluster_name: ${{ steps.cluster.outputs.cluster_name }}
+      cluster_exists: ${{ steps.check.outputs.cluster_exists }}
+      state_exists: ${{ steps.check.outputs.state_exists }}
+
+  destroy-eks-addons:
+    name: 'Remove EKS Add-ons'
+    runs-on: ubuntu-latest
+    needs: pre-destroy-checks
+    if: needs.pre-destroy-checks.outputs.cluster_exists == 'true'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Remove EBS CSI Driver Add-on
+      run: |
+        echo "Checking for EBS CSI Driver add-on..."
+        
+        CLUSTER_NAME="${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        
+        if aws eks describe-addon \
+          --cluster-name "$CLUSTER_NAME" \
+          --addon-name aws-ebs-csi-driver \
+          --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          
+          echo "Removing EBS CSI Driver add-on..."
+          aws eks delete-addon \
+            --cluster-name "$CLUSTER_NAME" \
+            --addon-name aws-ebs-csi-driver \
+            --region ${{ secrets.AWS_REGION }}
+          
+          echo "Waiting for add-on deletion to complete (may take 5-10 minutes)..."
+          while aws eks describe-addon \
+            --cluster-name "$CLUSTER_NAME" \
+            --addon-name aws-ebs-csi-driver \
+            --region ${{ secrets.AWS_REGION }} 2>/dev/null; do
+            echo "Still deleting... waiting 30 seconds"
+            sleep 30
+          done
+          
+          echo "✓ EBS CSI Driver add-on removed successfully"
+        else
+          echo "✓ EBS CSI Driver add-on not found (already removed or never installed)"
+        fi
+
+    - name: Remove Other EKS Add-ons
+      run: |
+        echo "Checking for other EKS add-ons..."
+        
+        CLUSTER_NAME="${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        
+        # Get list of all add-ons
+        ADDONS=$(aws eks list-addons --cluster-name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} --query 'addons[]' --output text 2>/dev/null || echo "")
+        
+        if [ -n "$ADDONS" ]; then
+          echo "Found add-ons: $ADDONS"
+          for addon in $ADDONS; do
+            echo "Removing add-on: $addon"
+            aws eks delete-addon \
+              --cluster-name "$CLUSTER_NAME" \
+              --addon-name "$addon" \
+              --region ${{ secrets.AWS_REGION }} || echo "Failed to remove $addon (may not exist)"
+          done
+          
+          # Wait for all add-ons to be removed
+          echo "Waiting for all add-ons to be removed..."
+          while [ -n "$(aws eks list-addons --cluster-name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} --query 'addons[]' --output text 2>/dev/null || echo '')" ]; do
+            echo "Still removing add-ons... waiting 30 seconds"
+            sleep 30
+          done
+          
+          echo "✓ All add-ons removed successfully"
+        else
+          echo "✓ No additional add-ons found"
+        fi
+
+  terraform-destroy:
+    name: 'Terraform Destroy'
+    runs-on: ubuntu-latest
+    needs: [pre-destroy-checks, destroy-eks-addons]
+    if: always() && needs.pre-destroy-checks.outputs.state_exists == 'true'
+    
+    defaults:
+      run:
+        working-directory: ${{ env.TERRAFORM_DIR }}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - name: Terraform Init
+      run: |
+        echo "Initializing Terraform..."
+        terraform init
+
+    - name: Create State Backup
+      run: |
+        echo "Creating backup of current Terraform state..."
+        BACKUP_FILE="state-backup-$(date +%Y%m%d-%H%M%S).json"
+        aws s3 cp s3://${{ env.STATE_BUCKET }}/bedrock/terraform.tfstate "./$BACKUP_FILE" || {
+          echo "Could not backup state file - it may not exist or be corrupted"
+          echo "Continuing with destroy operation..."
+        }
+        echo "State backup attempted"
+
+    - name: Clean PVCs and Persistent Volumes
+      run: |
+        echo "=== Cleaning Kubernetes Persistent Resources ==="
+        
+        # Try to connect to the cluster and clean up PVCs
+        CLUSTER_NAME="${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        
+        if aws eks describe-cluster --name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          echo "Updating kubeconfig..."
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} || true
+          
+          echo "Checking for PVCs..."
+          if kubectl get pvc --all-namespaces 2>/dev/null; then
+            echo "Deleting all PVCs..."
+            kubectl delete pvc --all --all-namespaces --timeout=300s || echo "Some PVCs could not be deleted"
+          else
+            echo "No PVCs found or couldn't connect to cluster"
+          fi
+          
+          echo "Checking for PVs..."
+          if kubectl get pv 2>/dev/null; then
+            echo "Patching PVs to remove finalizers..."
+            kubectl get pv -o name | xargs -I {} kubectl patch {} -p '{"metadata":{"finalizers":null}}' --type=merge || echo "Some PVs could not be patched"
+          else
+            echo "No PVs found or couldn't connect to cluster"
+          fi
+        else
+          echo "Cluster not accessible, skipping PVC cleanup"
+        fi
+
+    - name: Terraform Destroy
+      run: |
+        echo "=== DESTROYING INFRASTRUCTURE ==="
+        echo "⚠️  WARNING: This will destroy all infrastructure resources!"
+        echo "Cluster: ${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        echo "Region: ${{ secrets.AWS_REGION }}"
+        echo ""
+        
+        # Run destroy with detailed logging
+        terraform destroy -auto-approve -detailed-exitcode
+        
+        DESTROY_EXIT_CODE=$?
+        case $DESTROY_EXIT_CODE in
+          0)
+            echo "✓ Infrastructure destroyed successfully (no changes were necessary)"
+            ;;
+          1)
+            echo "❌ Terraform destroy failed"
+            exit 1
+            ;;
+          2)
+            echo "✓ Infrastructure destroyed successfully"
+            ;;
+          *)
+            echo "❓ Unexpected exit code: $DESTROY_EXIT_CODE"
+            exit $DESTROY_EXIT_CODE
+            ;;
+        esac
+      continue-on-error: false
+
+    - name: Verify Destruction
+      run: |
+        echo "=== Verifying Infrastructure Destruction ==="
+        
+        CLUSTER_NAME="${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        
+        # Check if EKS cluster still exists
+        if aws eks describe-cluster --name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          echo "⚠️ WARNING: EKS cluster '$CLUSTER_NAME' still exists"
+          echo "This might indicate incomplete destruction"
+        else
+          echo "✓ EKS cluster successfully destroyed"
+        fi
+        
+        # List remaining resources in the resource group (if using tags)
+        echo "Checking for remaining tagged resources..."
+        aws resourcegroupstaggingapi get-resources \
+          --tag-filters Key=Project,Values=Bedrock \
+          --region ${{ secrets.AWS_REGION }} \
+          --query 'ResourceTagMappingList[*].[ResourceARN]' \
+          --output text 2>/dev/null || echo "Could not check tagged resources"
+
+  destroy-backend:
+    name: 'Destroy Terraform Backend'
+    runs-on: ubuntu-latest
+    needs: [pre-destroy-checks, terraform-destroy]
+    if: always() && github.event.inputs.destroy_backend == 'true'
+    
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Destroy S3 Backend Bucket
+      run: |
+        echo "=== Destroying Terraform Backend Resources ==="
+        echo "⚠️  WARNING: This will destroy the Terraform state storage!"
+        echo ""
+        
+        # Remove all objects and versions from S3 bucket
+        echo "Emptying S3 bucket: ${{ env.STATE_BUCKET }}"
+        aws s3api list-object-versions \
+          --bucket "${{ env.STATE_BUCKET }}" \
+          --query 'Versions[].{Key:Key,VersionId:VersionId}' \
+          --output json | \
+        jq -r '.[] | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
+        xargs -I {} aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" {} || echo "No versions to delete"
+        
+        # Remove delete markers
+        aws s3api list-object-versions \
+          --bucket "${{ env.STATE_BUCKET }}" \
+          --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
+          --output json | \
+        jq -r '.[] | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
+        xargs -I {} aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" {} || echo "No delete markers to remove"
+        
+        # Delete the bucket
+        echo "Deleting S3 bucket..."
+        aws s3api delete-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }}
+        echo "✓ S3 bucket deleted: ${{ env.STATE_BUCKET }}"
+
+    - name: Destroy DynamoDB Lock Table
+      run: |
+        echo "Deleting DynamoDB table: ${{ env.LOCK_TABLE }}"
+        
+        if aws dynamodb describe-table --table-name "${{ env.LOCK_TABLE }}" --region ${{ secrets.AWS_REGION }} 2>/dev/null; then
+          aws dynamodb delete-table --table-name "${{ env.LOCK_TABLE }}" --region ${{ secrets.AWS_REGION }}
+          
+          echo "Waiting for table deletion..."
+          aws dynamodb wait table-not-exists --table-name "${{ env.LOCK_TABLE }}" --region ${{ secrets.AWS_REGION }}
+          echo "✓ DynamoDB table deleted: ${{ env.LOCK_TABLE }}"
+        else
+          echo "✓ DynamoDB table doesn't exist or already deleted: ${{ env.LOCK_TABLE }}"
+        fi
+
+  destruction-summary:
+    name: 'Destruction Summary'
+    runs-on: ubuntu-latest
+    needs: [pre-destroy-checks, destroy-eks-addons, terraform-destroy, destroy-backend]
+    if: always()
+    
+    steps:
+    - name: Generate Summary
+      run: |
+        echo "=== INFRASTRUCTURE DESTRUCTION SUMMARY ==="
+        echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        echo "Triggered by: @${{ github.actor }}"
+        echo "Cluster: ${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        echo "Region: ${{ secrets.AWS_REGION }}"
+        echo ""
+        echo "Job Results:"
+        echo "- Pre-destroy checks: ${{ needs.pre-destroy-checks.result }}"
+        echo "- EKS add-ons removal: ${{ needs.destroy-eks-addons.result }}"
+        echo "- Terraform destroy: ${{ needs.terraform-destroy.result }}"
+        echo "- Backend destruction: ${{ needs.destroy-backend.result }}"
+        echo ""
+        
+        if [ "${{ needs.terraform-destroy.result }}" = "success" ]; then
+          echo "✅ INFRASTRUCTURE SUCCESSFULLY DESTROYED"
+        else
+          echo "❌ INFRASTRUCTURE DESTRUCTION HAD ISSUES"
+          echo "Please check the job logs and AWS console for any remaining resources"
+        fi
+        
+        if [ "${{ github.event.inputs.destroy_backend }}" = "true" ]; then
+          if [ "${{ needs.destroy-backend.result }}" = "success" ]; then
+            echo "✅ TERRAFORM BACKEND SUCCESSFULLY DESTROYED"
+          else
+            echo "❌ TERRAFORM BACKEND DESTRUCTION HAD ISSUES"
+          fi
+        else
+          echo "ℹ️  Terraform backend was preserved (S3 bucket and DynamoDB table)"
+        fi
+        
+        echo ""
+        echo "Manual cleanup checklist (if needed):"
+        echo "1. Check AWS Console for any remaining EKS clusters"
+        echo "2. Verify no orphaned EC2 instances, security groups, or load balancers"
+        echo "3. Check S3 buckets for any application data"
+        echo "4. Verify IAM roles and policies cleanup"
+        echo "5. Check CloudWatch logs retention"

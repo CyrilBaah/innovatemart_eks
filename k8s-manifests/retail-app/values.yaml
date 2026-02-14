@@ -1,0 +1,193 @@
+# Helm values for AWS Retail Store Sample Application
+# This configuration deploys the application with in-cluster dependencies
+
+# Global settings
+global:
+  storageClass: gp2
+
+# UI Service Configuration
+ui:
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-ui
+    tag: "latest"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+# Catalog Service Configuration  
+catalog:
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-catalog
+    tag: "latest"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi" 
+      cpu: "500m"
+  database:
+    # Use in-cluster MySQL as per core requirements
+    engine: mysql
+    host: catalog-mysql
+    name: catalog
+    
+# Cart Service Configuration
+cart:
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-cart
+    tag: "latest" 
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  redis:
+    # Use in-cluster Redis
+    host: cart-redis
+
+# Orders Service Configuration
+orders:  
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-orders
+    tag: "latest"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m" 
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  database:
+    # Use in-cluster PostgreSQL as per core requirements
+    engine: postgres
+    host: orders-db
+    name: orders
+
+# Checkout Service Configuration
+checkout:
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-checkout
+    tag: "latest"
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  redis:
+    host: checkout-redis
+
+# Assets Service Configuration  
+assets:
+  image:
+    repository: public.ecr.aws/aws-containers/retail-store-sample-assets
+    tag: "latest"
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi"
+      cpu: "250m"
+
+# In-cluster Dependencies (Core requirement)
+mysql:
+  enabled: true
+  architecture: standalone
+  auth:
+    rootPassword: "catalogpassword"
+    database: "catalog"
+    username: "catalog_user"
+    password: "cataloguserpassword"
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "gp2"
+      size: 8Gi
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+postgresql:
+  enabled: true
+  architecture: standalone
+  auth:
+    postgresPassword: "orderspassword"
+    database: "orders"
+    username: "orders_user" 
+    password: "ordersuserpassword"
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "gp2"
+      size: 8Gi
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "100m" 
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      storageClass: "gp2"
+      size: 4Gi
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "50m"
+      limits:
+        memory: "512Mi"
+        cpu: "250m"
+
+# RabbitMQ for messaging
+rabbitmq:
+  enabled: true
+  auth:
+    username: "guest"
+    password: "guest"
+  persistence:
+    enabled: true
+    storageClass: "gp2"
+    size: 4Gi
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi" 
+      cpu: "250m"
+
+# Monitoring and observability
+serviceMonitor:
+  enabled: false  # Will be enabled when Prometheus is available
+
+# LoadBalancer / Ingress configuration
+# For core requirements, using ClusterIP services
+# For bonus section, this can be changed to LoadBalancer or ALB
+service:
+  type: ClusterIP
+
+# Node scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}

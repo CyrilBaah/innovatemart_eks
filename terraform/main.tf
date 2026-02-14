@@ -11,7 +11,7 @@ locals {
   }
 
   cluster_name = var.cluster_name
-  region      = var.aws_region
+  region       = var.aws_region
 }
 
 # Additional resources that might be needed

@@ -84,8 +84,8 @@ output "kubectl_config_command" {
 output "grading_info" {
   description = "Information needed for automated grading"
   value = {
-    cluster_endpoint    = module.eks.cluster_endpoint
-    cluster_name        = module.eks.cluster_name
+    cluster_endpoint   = module.eks.cluster_endpoint
+    cluster_name       = module.eks.cluster_name
     region             = var.aws_region
     vpc_id             = module.vpc.vpc_id
     assets_bucket_name = aws_s3_bucket.assets_bucket.id

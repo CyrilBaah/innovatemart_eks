@@ -21,7 +21,7 @@ on:
           - development
 
 env:
-  CLUSTER_NAME: 'bedrock-eks'
+  CLUSTER_NAME: 'project-bedrock-cluster'
   APP_NAMESPACE: 'retail-app'
 
 permissions:
@@ -59,7 +59,17 @@ jobs:
         echo "🔍 Checking if EKS cluster exists..."
         if aws eks describe-cluster --name ${{ env.CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }} > /dev/null 2>&1; then
           echo "✅ EKS cluster '${{ env.CLUSTER_NAME }}' found"
-          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          
+          # Check cluster status
+          CLUSTER_STATUS=$(aws eks describe-cluster --name ${{ env.CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }} --query 'cluster.status' --output text)
+          if [ "$CLUSTER_STATUS" = "ACTIVE" ]; then
+            echo "✅ Cluster is ACTIVE and ready"
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Cluster status: $CLUSTER_STATUS (not ACTIVE)"
+            echo "::warning::Cluster exists but may not be ready. Status: $CLUSTER_STATUS"
+            echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          fi
         else
           echo "❌ EKS cluster '${{ env.CLUSTER_NAME }}' not found"
           echo "cluster_exists=false" >> $GITHUB_OUTPUT
