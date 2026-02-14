@@ -299,27 +299,44 @@ jobs:
         echo "⚠️  WARNING: This will destroy the Terraform state storage!"
         echo ""
         
-        # Remove all objects and versions from S3 bucket
+        # Empty S3 bucket using AWS CLI
         echo "Emptying S3 bucket: ${{ env.STATE_BUCKET }}"
-        aws s3api list-object-versions \
-          --bucket "${{ env.STATE_BUCKET }}" \
-          --query 'Versions[].{Key:Key,VersionId:VersionId}' \
-          --output json | \
-        jq -r '.[] | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
-        xargs -I {} aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" {} || echo "No versions to delete"
         
-        # Remove delete markers
-        aws s3api list-object-versions \
-          --bucket "${{ env.STATE_BUCKET }}" \
-          --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' \
-          --output json | \
-        jq -r '.[] | "--key \"\(.Key)\" --version-id \(.VersionId)"' | \
-        xargs -I {} aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" {} || echo "No delete markers to remove"
-        
-        # Delete the bucket
-        echo "Deleting S3 bucket..."
-        aws s3api delete-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }}
-        echo "✓ S3 bucket deleted: ${{ env.STATE_BUCKET }}"
+        # Check if bucket exists first
+        if aws s3api head-bucket --bucket "${{ env.STATE_BUCKET }}" 2>/dev/null; then
+          echo "Bucket exists, proceeding with deletion..."
+          
+          # Remove all objects (current versions)
+          echo "Removing current objects..."
+          aws s3 rm s3://${{ env.STATE_BUCKET }} --recursive || echo "No current objects found"
+          
+          # Force empty bucket (handles versioned objects and delete markers)
+          echo "Force emptying bucket (including versions)..."
+          aws s3api list-object-versions --bucket "${{ env.STATE_BUCKET }}" --output json > /tmp/versions.json || echo "{}"
+          
+          # Delete versions
+          cat /tmp/versions.json | jq -r '.Versions[]? | select(.Key != null) | .Key + " " + .VersionId' | while read -r key version; do
+            if [ -n "$key" ] && [ -n "$version" ]; then
+              echo "Deleting version: $key ($version)"
+              aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" --key "$key" --version-id "$version" || true
+            fi
+          done
+          
+          # Delete delete markers
+          cat /tmp/versions.json | jq -r '.DeleteMarkers[]? | select(.Key != null) | .Key + " " + .VersionId' | while read -r key version; do
+            if [ -n "$key" ] && [ -n "$version" ]; then
+              echo "Deleting marker: $key ($version)"
+              aws s3api delete-object --bucket "${{ env.STATE_BUCKET }}" --key "$key" --version-id "$version" || true
+            fi
+          done
+          
+          # Delete the bucket
+          echo "Deleting S3 bucket..."
+          aws s3api delete-bucket --bucket "${{ env.STATE_BUCKET }}" --region ${{ secrets.AWS_REGION }}
+          echo "✓ S3 bucket deleted: ${{ env.STATE_BUCKET }}"
+        else
+          echo "✓ S3 bucket doesn't exist or already deleted: ${{ env.STATE_BUCKET }}"
+        fi
 
     - name: Destroy DynamoDB Lock Table
       run: |
