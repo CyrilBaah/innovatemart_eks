@@ -22,7 +22,7 @@ env:
   TERRAFORM_DIR: './terraform'
   STATE_BUCKET: 'bedrock-tfstate-alt-soe-025-0223'
   LOCK_TABLE: 'bedrock-terraform-state-lock'
-  CLUSTER_NAME: 'project-bedrock-cluster'
+  CLUSTER_NAME: 'bedrock-eks'
 
 permissions:
   id-token: write
