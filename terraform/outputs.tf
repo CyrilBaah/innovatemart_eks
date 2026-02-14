@@ -84,12 +84,14 @@ output "kubectl_config_command" {
 output "grading_info" {
   description = "Information needed for automated grading"
   value = {
-    cluster_endpoint   = module.eks.cluster_endpoint
-    cluster_name       = module.eks.cluster_name
-    region             = var.aws_region
-    vpc_id             = module.vpc.vpc_id
-    assets_bucket_name = aws_s3_bucket.assets_bucket.id
-    lambda_function    = aws_lambda_function.asset_processor.function_name
-    developer_user     = aws_iam_user.developer.name    developer_user_original = var.developer_username    app_namespace      = var.app_namespace
+    cluster_endpoint        = module.eks.cluster_endpoint
+    cluster_name            = module.eks.cluster_name
+    region                  = var.aws_region
+    vpc_id                  = module.vpc.vpc_id
+    assets_bucket_name      = aws_s3_bucket.assets_bucket.id
+    lambda_function         = aws_lambda_function.asset_processor.function_name
+    developer_user          = aws_iam_user.developer.name
+    developer_user_original = var.developer_username
+    app_namespace           = var.app_namespace
   }
 }

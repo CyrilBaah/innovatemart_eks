@@ -12,8 +12,8 @@ resource "aws_iam_user" "developer" {
   path = "/"
 
   tags = {
-    Project     = "Bedrock"
-    Role        = "Developer"
+    Project      = "Bedrock"
+    Role         = "Developer"
     OriginalName = var.developer_username
   }
 
@@ -25,7 +25,7 @@ resource "aws_iam_user" "developer" {
 # Create access key for the developer user
 resource "aws_iam_access_key" "developer_key" {
   user = aws_iam_user.developer.name
-  
+
   lifecycle {
     ignore_changes = []
   }
@@ -35,11 +35,6 @@ resource "aws_iam_access_key" "developer_key" {
 resource "aws_iam_user_policy_attachment" "developer_readonly" {
   user       = aws_iam_user.developer.name
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-}
-
-# Generate random suffix for unique policy naming
-resource "random_id" "policy_suffix" {
-  byte_length = 4
 }
 
 # Custom policy for S3 bucket access with unique naming
