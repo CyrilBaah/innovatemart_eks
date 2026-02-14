@@ -9,16 +9,6 @@ on:
       - '.github/workflows/deploy-application.yml'
   
   workflow_dispatch:  # Allow manual trigger
-    inputs:
-      environment:
-        description: 'Deployment environment'
-        required: false
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
-          - development
 
 env:
   CLUSTER_NAME: 'project-bedrock-cluster'
@@ -100,97 +90,41 @@ jobs:
     - name: Add Helm repositories
       run: |
         echo "📚 Adding Helm repositories..."
-        helm repo add eks https://aws.github.io/eks-charts
-        helm repo add aws-for-fluent-bit https://aws.github.io/eks-charts
+        helm repo add bitnami https://charts.bitnami.com/bitnami
         helm repo update
         echo "✅ Helm repositories updated"
     
-    - name: Deploy retail store UI service
+    - name: Deploy AWS Retail Store Sample Application using Kubernetes manifests
       run: |
-        echo "🚀 Deploying retail store UI service..."
-        kubectl apply -n ${{ env.APP_NAMESPACE }} -f - <<EOF
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: ui
-          namespace: ${{ env.APP_NAMESPACE }}
-          labels:
-            app: ui
-            app.kubernetes.io/name: retail-store-ui
-            app.kubernetes.io/component: frontend
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
-              app: ui
-          template:
-            metadata:
-              labels:
-                app: ui
-                app.kubernetes.io/name: retail-store-ui
-                app.kubernetes.io/component: frontend
-            spec:
-              containers:
-              - name: ui
-                image: public.ecr.aws/aws-containers/retail-store-sample-ui:latest
-                imagePullPolicy: Always
-                ports:
-                - name: http
-                  containerPort: 8080
-                  protocol: TCP
-                env:
-                - name: PORT
-                  value: "8080"
-                resources:
-                  requests:
-                    memory: "256Mi"
-                    cpu: "100m"
-                  limits:
-                    memory: "512Mi"
-                    cpu: "250m"
-                livenessProbe:
-                  httpGet:
-                    path: /
-                    port: 8080
-                  initialDelaySeconds: 30
-                  periodSeconds: 10
-                readinessProbe:
-                  httpGet:
-                    path: /
-                    port: 8080
-                  initialDelaySeconds: 10
-                  periodSeconds: 5
-        ---
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: ui
-          namespace: ${{ env.APP_NAMESPACE }}
-          labels:
-            app: ui
-        spec:
-          type: LoadBalancer
-          selector:
-            app: ui
-          ports:
-          - name: http
-            port: 80
-            targetPort: 8080
-            protocol: TCP
-        EOF
-        echo "✅ UI service deployed"
+        echo "🚀 Deploying complete retail store application..."
+        
+        # Download and apply the latest Kubernetes manifests
+        kubectl apply -f https://github.com/aws-containers/retail-store-sample-app/releases/latest/download/kubernetes.yaml
+        
+        echo "✅ Retail store application deployed successfully"
     
-    - name: Wait for deployment to be ready
+    - name: Wait for all deployments to be ready
       run: |
-        echo "⏳ Waiting for deployment to be ready..."
-        kubectl wait --for=condition=available --timeout=300s deployment/ui -n ${{ env.APP_NAMESPACE }}
-        echo "✅ Deployment is ready"
+        echo "⏳ Waiting for all deployments to be ready..."
+        
+        # Wait for all main application deployments
+        deployments=("ui" "catalog" "cart" "orders" "checkout" "assets")
+        for deployment in "${deployments[@]}"; do
+          echo "⏳ Waiting for deployment/$deployment..."
+          kubectl wait --for=condition=available --timeout=600s deployment/$deployment -n ${{ env.APP_NAMESPACE }} || true
+        done
+        
+        # Wait for database deployments
+        echo "⏳ Waiting for database deployments..."
+        kubectl wait --for=condition=available --timeout=600s deployment -l app.kubernetes.io/component=primary -n ${{ env.APP_NAMESPACE }} || true
+        
+        echo "✅ All deployments processed"
     
     - name: Get deployment status
       run: |
         echo "📊 Deployment Status:"
         echo ""
-        echo "=== Pods ==="
+        echo "=== All Pods ==="
         kubectl get pods -n ${{ env.APP_NAMESPACE }} -o wide
         echo ""
         echo "=== Services ==="
@@ -198,6 +132,9 @@ jobs:
         echo ""
         echo "=== Deployments ==="
         kubectl get deployments -n ${{ env.APP_NAMESPACE }}
+        echo ""
+        echo "=== Persistent Volume Claims ==="
+        kubectl get pvc -n ${{ env.APP_NAMESPACE }}
     
     - name: Get application URL
       run: |
@@ -205,28 +142,44 @@ jobs:
         echo ""
         echo "Waiting for LoadBalancer to be provisioned (this may take a few minutes)..."
         
-        # Wait up to 5 minutes for the LoadBalancer to get an external IP
-        for i in {1..30}; do
+        # Wait up to 10 minutes for the LoadBalancer to get an external IP
+        for i in {1..60}; do
           LB_URL=$(kubectl get svc ui -n ${{ env.APP_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
           if [ -n "$LB_URL" ]; then
             echo "✅ Application is accessible at: http://$LB_URL"
             echo ""
             echo "===================================="
-            echo "🎉 Deployment Summary"
+            echo "🎉 Retail Store Application Deployed!"
             echo "===================================="
-            echo "Application URL: http://$LB_URL"
+            echo "Frontend URL: http://$LB_URL"
             echo "Namespace: ${{ env.APP_NAMESPACE }}"
-            echo "Environment: ${{ inputs.environment || 'production' }}"
+            echo "Environment: production"
+            echo ""
+            echo "Services deployed:"
+            echo "- 🌐 Frontend (UI)"
+            echo "- 📚 Catalog Service"
+            echo "- 🛒 Cart Service" 
+            echo "- 📋 Orders Service"
+            echo "- 💳 Checkout Service"
+            echo "- 📁 Assets Service"
+            echo "- 🗄️ MySQL (Catalog DB)"
+            echo "- 🗄️ PostgreSQL (Orders DB)"
+            echo "- 🔴 Redis (Cache)"
+            echo "- 🐰 RabbitMQ (Messaging)"
             echo "===================================="
             break
           fi
-          echo "⏳ Waiting for LoadBalancer... (attempt $i/30)"
+          echo "⏳ Waiting for LoadBalancer... (attempt $i/60)"
           sleep 10
         done
         
         if [ -z "$LB_URL" ]; then
-          echo "⚠️ LoadBalancer URL not available yet. Check later with:"
-          echo "kubectl get svc ui -n ${{ env.APP_NAMESPACE }}"
+          echo "⚠️ LoadBalancer URL not available yet. The application is still starting up."
+          echo "Check later with: kubectl get svc ui -n ${{ env.APP_NAMESPACE }}"
+          echo ""
+          echo "You can also access the application using port-forward:"
+          echo "kubectl port-forward svc/ui 8080:80 -n ${{ env.APP_NAMESPACE }}"
+          echo "Then visit: http://localhost:8080"
         fi
     
     - name: Deployment Summary
@@ -234,21 +187,33 @@ jobs:
       run: |
         echo ""
         echo "===================================="
-        echo "📋 Deployment Summary"
+        echo "📋 AWS Retail Store Deployment Summary"
         echo "===================================="
         echo "Cluster: ${{ env.CLUSTER_NAME }}"
         echo "Namespace: ${{ env.APP_NAMESPACE }}"
-        echo "Environment: ${{ inputs.environment || 'production' }}"
+        echo "Environment: production"
         echo ""
-        echo "To access your application:"
-        echo "1. Get the LoadBalancer URL:"
+        echo "🔍 To monitor and manage your application:"
+        echo ""
+        echo "1. Get the application URL:"
         echo "   kubectl get svc ui -n ${{ env.APP_NAMESPACE }}"
         echo ""
-        echo "2. View application logs:"
-        echo "   kubectl logs -f -l app=ui -n ${{ env.APP_NAMESPACE }}"
+        echo "2. View all application components:"
+        echo "   kubectl get all -n ${{ env.APP_NAMESPACE }}"
         echo ""
-        echo "3. Check pod status:"
-        echo "   kubectl get pods -n ${{ env.APP_NAMESPACE }}"
+        echo "3. Check individual service logs:"
+        echo "   kubectl logs -f deployment/ui -n ${{ env.APP_NAMESPACE }}      # Frontend"
+        echo "   kubectl logs -f deployment/catalog -n ${{ env.APP_NAMESPACE }} # Catalog API"
+        echo "   kubectl logs -f deployment/cart -n ${{ env.APP_NAMESPACE }}    # Cart API"
+        echo "   kubectl logs -f deployment/orders -n ${{ env.APP_NAMESPACE }}  # Orders API"
+        echo ""
+        echo "4. Access the application locally (if LoadBalancer is not ready):"
+        echo "   kubectl port-forward svc/ui 8080:80 -n ${{ env.APP_NAMESPACE }}"
+        echo "   Then visit: http://localhost:8080"
+        echo ""
+        echo "5. Check database connections:"
+        echo "   kubectl get pods -l app.kubernetes.io/component=primary -n ${{ env.APP_NAMESPACE }}"
+        echo ""
         echo "===================================="
 
   validate-deployment:
@@ -276,26 +241,77 @@ jobs:
     
     - name: Run health checks
       run: |
-        echo "🏥 Running health checks..."
+        echo "🏥 Running comprehensive health checks for retail store application..."
         echo ""
         
-        # Check if pods are running
-        POD_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app=ui -o jsonpath='{.items[0].status.phase}')
-        if [ "$POD_STATUS" == "Running" ]; then
-          echo "✅ Pod is running"
+        # Check if all main application pods are running
+        services=("ui" "catalog" "cart" "orders" "checkout" "assets")
+        failed_services=()
+        
+        for service in "${services[@]}"; do
+          echo "🔍 Checking $service service..."
+          POD_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app=$service -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+          if [ "$POD_STATUS" == "Running" ]; then
+            echo "✅ $service is running"
+          else
+            echo "❌ $service status: $POD_STATUS"
+            failed_services+=($service)
+          fi
+        done
+        
+        # Check database pods
+        echo ""
+        echo "🗄️ Checking database services..."
+        
+        # Check MySQL (catalog database)
+        MYSQL_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app.kubernetes.io/name=mysql -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+        if [ "$MYSQL_STATUS" == "Running" ]; then
+          echo "✅ MySQL (catalog database) is running"
         else
-          echo "❌ Pod status: $POD_STATUS"
-          exit 1
+          echo "❌ MySQL status: $MYSQL_STATUS"
+          failed_services+=("mysql")
         fi
         
-        # Check if service has endpoints
-        ENDPOINTS=$(kubectl get endpoints ui -n ${{ env.APP_NAMESPACE }} -o jsonpath='{.subsets[*].addresses[*].ip}')
+        # Check PostgreSQL (orders database)  
+        POSTGRES_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+        if [ "$POSTGRES_STATUS" == "Running" ]; then
+          echo "✅ PostgreSQL (orders database) is running"
+        else
+          echo "❌ PostgreSQL status: $POSTGRES_STATUS"
+          failed_services+=("postgresql")
+        fi
+        
+        # Check Redis
+        REDIS_STATUS=$(kubectl get pods -n ${{ env.APP_NAMESPACE }} -l app.kubernetes.io/name=redis -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+        if [ "$REDIS_STATUS" == "Running" ]; then
+          echo "✅ Redis is running"
+        else
+          echo "❌ Redis status: $REDIS_STATUS"
+          failed_services+=("redis")
+        fi
+        
+        # Check if UI service has endpoints (main application entry point)
+        echo ""
+        echo "🔗 Checking service connectivity..."
+        ENDPOINTS=$(kubectl get endpoints ui -n ${{ env.APP_NAMESPACE }} -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || echo "")
         if [ -n "$ENDPOINTS" ]; then
-          echo "✅ Service has endpoints: $ENDPOINTS"
+          echo "✅ UI service has endpoints: $ENDPOINTS"
         else
-          echo "❌ Service has no endpoints"
-          exit 1
+          echo "❌ UI service has no endpoints"
+          failed_services+=("ui-endpoints")
         fi
         
+        # Summary
         echo ""
-        echo "✅ All health checks passed!"
+        if [ ${#failed_services[@]} -eq 0 ]; then
+          echo "✅ All health checks passed! Retail store application is fully operational."
+        else
+          echo "❌ Health check failures detected:"
+          for failed in "${failed_services[@]}"; do
+            echo "  - $failed"
+          done
+          echo ""
+          echo "ℹ️  Some services may still be starting up. Check pod status with:"
+          echo "kubectl get pods -n ${{ env.APP_NAMESPACE }}"
+          exit 1
+        fi

@@ -17,6 +17,10 @@ ui:
     limits:
       memory: "1Gi"
       cpu: "500m"
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8080
   
 # Catalog Service Configuration  
 catalog:
@@ -180,12 +184,6 @@ rabbitmq:
 # Monitoring and observability
 serviceMonitor:
   enabled: false  # Will be enabled when Prometheus is available
-
-# LoadBalancer / Ingress configuration
-# For core requirements, using ClusterIP services
-# For bonus section, this can be changed to LoadBalancer or ALB
-service:
-  type: ClusterIP
 
 # Node scheduling
 nodeSelector: {}
