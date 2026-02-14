@@ -245,26 +245,16 @@ jobs:
         echo "Region: ${{ secrets.AWS_REGION }}"
         echo ""
         
-        # Run destroy with detailed logging
-        terraform destroy -auto-approve -detailed-exitcode
+        # Run destroy with auto-approval
+        terraform destroy -auto-approve
         
         DESTROY_EXIT_CODE=$?
-        case $DESTROY_EXIT_CODE in
-          0)
-            echo "✓ Infrastructure destroyed successfully (no changes were necessary)"
-            ;;
-          1)
-            echo "❌ Terraform destroy failed"
-            exit 1
-            ;;
-          2)
-            echo "✓ Infrastructure destroyed successfully"
-            ;;
-          *)
-            echo "❓ Unexpected exit code: $DESTROY_EXIT_CODE"
-            exit $DESTROY_EXIT_CODE
-            ;;
-        esac
+        if [ $DESTROY_EXIT_CODE -eq 0 ]; then
+          echo "✓ Infrastructure destroyed successfully"
+        else
+          echo "❌ Terraform destroy failed with exit code: $DESTROY_EXIT_CODE"
+          exit $DESTROY_EXIT_CODE
+        fi
       continue-on-error: false
 
     - name: Verify Destruction
