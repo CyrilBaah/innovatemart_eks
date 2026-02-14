@@ -103,6 +103,15 @@ jobs:
         
         echo "✅ Retail store application deployed successfully"
     
+    - name: Patch UI deployment for memory optimization
+      run: |
+        echo "🔧 Optimizing UI memory settings for t3.medium nodes..."
+        
+        # Patch UI deployment to use 256Mi memory instead of 512Mi to fit on t3.medium nodes
+        kubectl patch deployment ui -n ${{ env.APP_NAMESPACE }} -p '{"spec":{"template":{"spec":{"containers":[{"name":"ui","resources":{"requests":{"memory":"256Mi"},"limits":{"memory":"256Mi"}}}]}}}}'
+        
+        echo "✅ UI memory settings optimized for current node capacity"
+    
     - name: Wait for all deployments to be ready
       run: |
         echo "⏳ Waiting for all deployments to be ready..."
