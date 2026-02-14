@@ -237,6 +237,85 @@ jobs:
           echo "Cluster not accessible, skipping PVC cleanup"
         fi
 
+    - name: Cleanup AWS Dependencies
+      run: |
+        echo "=== Cleaning AWS Resource Dependencies ==="
+        
+        # Get VPC ID and cluster name
+        CLUSTER_NAME="${{ needs.pre-destroy-checks.outputs.cluster_name }}"
+        
+        # Try to get VPC ID from EKS cluster
+        VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region ${{ secrets.AWS_REGION }} --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || echo "")
+        
+        if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+          echo "Found VPC: $VPC_ID"
+          
+          # 1. Delete Load Balancers
+          echo "Searching for Load Balancers..."
+          aws elbv2 describe-load-balancers --region ${{ secrets.AWS_REGION }} --output json | \
+          jq -r --arg vpc "$VPC_ID" '.LoadBalancers[] | select(.VpcId == $vpc) | .LoadBalancerArn' | \
+          while read -r lb_arn; do
+            if [ -n "$lb_arn" ]; then
+              echo "Deleting Load Balancer: $lb_arn"
+              aws elbv2 delete-load-balancer --load-balancer-arn "$lb_arn" --region ${{ secrets.AWS_REGION }} || true
+            fi
+          done
+          
+          # 2. Delete Classic Load Balancers  
+          echo "Searching for Classic Load Balancers..."
+          aws elb describe-load-balancers --region ${{ secrets.AWS_REGION }} --output json | \
+          jq -r --arg vpc "$VPC_ID" '.LoadBalancerDescriptions[] | select(.VPCId == $vpc) | .LoadBalancerName' | \
+          while read -r lb_name; do
+            if [ -n "$lb_name" ]; then
+              echo "Deleting Classic Load Balancer: $lb_name"
+              aws elb delete-load-balancer --load-balancer-name "$lb_name" --region ${{ secrets.AWS_REGION }} || true
+            fi
+          done
+          
+          # 3. Wait for Load Balancer cleanup
+          echo "Waiting 60 seconds for load balancers to be deleted..."
+          sleep 60
+          
+          # 4. Release Elastic IPs
+          echo "Searching for Elastic IPs in VPC..."
+          aws ec2 describe-addresses --region ${{ secrets.AWS_REGION }} --output json | \
+          jq -r --arg vpc "$VPC_ID" '.Addresses[] | select(.Domain == "vpc") | .AllocationId' | \
+          while read -r alloc_id; do
+            if [ -n "$alloc_id" ]; then
+              # Check if it's associated with our VPC
+              INSTANCE_ID=$(aws ec2 describe-addresses --allocation-ids "$alloc_id" --region ${{ secrets.AWS_REGION }} --query 'Addresses[0].InstanceId' --output text 2>/dev/null || echo "")
+              ENI_ID=$(aws ec2 describe-addresses --allocation-ids "$alloc_id" --region ${{ secrets.AWS_REGION }} --query 'Addresses[0].NetworkInterfaceId' --output text 2>/dev/null || echo "")
+              
+              if [ -n "$ENI_ID" ] && [ "$ENI_ID" != "None" ]; then
+                # Check if ENI belongs to our VPC
+                ENI_VPC=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --region ${{ secrets.AWS_REGION }} --query 'NetworkInterfaces[0].VpcId' --output text 2>/dev/null || echo "")
+                if [ "$ENI_VPC" = "$VPC_ID" ]; then
+                  echo "Releasing Elastic IP: $alloc_id (attached to $ENI_ID)"
+                  aws ec2 release-address --allocation-id "$alloc_id" --region ${{ secrets.AWS_REGION }} || true
+                fi
+              fi
+            fi
+          done
+          
+          # 5. Delete dangling Network Interfaces
+          echo "Searching for Network Interfaces in VPC..."
+          aws ec2 describe-network-interfaces --region ${{ secrets.AWS_REGION }} --filters "Name=vpc-id,Values=$VPC_ID" --output json | \
+          jq -r '.NetworkInterfaces[] | select(.Status == "available") | .NetworkInterfaceId' | \
+          while read -r eni_id; do
+            if [ -n "$eni_id" ]; then
+              echo "Deleting available Network Interface: $eni_id"
+              aws ec2 delete-network-interface --network-interface-id "$eni_id" --region ${{ secrets.AWS_REGION }} || true
+            fi
+          done
+          
+          # 6. Final wait
+          echo "Waiting additional 30 seconds for cleanup to propagate..."
+          sleep 30
+          
+        else
+          echo "Could not determine VPC ID, skipping AWS dependency cleanup"
+        fi
+
     - name: Terraform Destroy
       run: |
         echo "=== DESTROYING INFRASTRUCTURE ==="
