@@ -1,0 +1,85 @@
+{
+  "cluster_endpoint": {
+    "value": "https://01A16601AF92A1FAD060CCD08203410B.gr7.us-east-1.eks.amazonaws.com",
+    "description": "EKS cluster endpoint URL"
+  },
+  "cluster_name": {
+    "value": "project-bedrock-cluster",
+    "description": "Name of the EKS cluster"
+  },
+  "region": {
+    "value": "us-east-1",
+    "description": "AWS region where infrastructure is deployed"
+  },
+  "vpc_id": {
+    "value": "vpc-0123456789abcdef0",
+    "description": "VPC ID where cluster is deployed"
+  },
+  "assets_bucket_name": {
+    "value": "bedrock-assets-ALT-SOE-025-0223",
+    "description": "S3 bucket name for asset storage"
+  },
+  "cluster_security_group_id": {
+    "value": "sg-0123456789abcdef0",
+    "description": "Security group ID for the cluster"
+  },
+  "vpc_name": {
+    "value": "project-bedrock-vpc",
+    "description": "Name tag for the VPC"
+  },
+  "application_namespace": {
+    "value": "retail-app",
+    "description": "Kubernetes namespace for the application"
+  },
+  "iam_user_developer": {
+    "value": "bedrock-dev-view",
+    "description": "IAM user for developer access"
+  },
+  "lambda_function_name": {
+    "value": "bedrock-asset-processor",
+    "description": "Lambda function for asset processing"
+  },
+  "node_group_role_arn": {
+    "value": "arn:aws:iam::123456789012:role/project-bedrock-node-group-role",
+    "description": "IAM role ARN for EKS node group"
+  },
+  "s3_tfstate_bucket": {
+    "value": "bedrock-tfstate-alt-soe-025-0223",
+    "description": "S3 bucket used for Terraform state"
+  },
+  "application_url": {
+    "value": "http://a2c677a94454e4901a772fabd916282f-839871599.us-east-1.elb.amazonaws.com",
+    "description": "External LoadBalancer URL for the retail store application"
+  },
+  "deployment_status": {
+    "value": "SUCCESS",
+    "description": "Overall deployment status"
+  },
+  "services_deployed": {
+    "value": 10,
+    "description": "Total number of services deployed and running"
+  },
+  "resource_tagging": {
+    "value": "Project: Bedrock",
+    "description": "Required tag applied to all resources"
+  },
+  "student_id": {
+    "value": "ALT-SOE-025-0223",
+    "description": "Student identification"
+  },
+  "infrastructure_components": {
+    "value": [
+      "EKS Cluster v1.31 (project-bedrock-cluster)",
+      "VPC with public/private subnets (project-bedrock-vpc)",
+      "IAM roles and policies with Project: Bedrock tag", 
+      "S3 backend for Terraform state",
+      "S3 assets bucket (bedrock-assets-ALT-SOE-025-0223)",
+      "Lambda function (bedrock-asset-processor)",
+      "CloudWatch logging",
+      "EBS CSI driver",
+      "AWS Load Balancer Controller",
+      "IAM developer user (bedrock-dev-view)"
+    ],
+    "description": "List of deployed infrastructure components meeting project constraints"
+  }
+}
