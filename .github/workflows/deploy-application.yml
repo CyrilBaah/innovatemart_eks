@@ -1,14 +1,16 @@
-name: 'Deploy Application (Kubernetes)'
+name: 'Deploy Application (Kubernetes) - MANUAL ONLY'
 
+# AUTOMATIC DEPLOYMENT DISABLED  
+# Uncomment the sections below to re-enable automatic deployment
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'k8s-manifests/**'
-      - '.github/workflows/deploy-application.yml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'k8s-manifests/**'
+  #     - '.github/workflows/deploy-application.yml'
   
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Manual trigger only
 
 env:
   CLUSTER_NAME: 'project-bedrock-cluster'

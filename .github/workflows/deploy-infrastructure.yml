@@ -1,21 +1,23 @@
-name: 'Deploy Infrastructure (Terraform)'
+name: 'Deploy Infrastructure (Terraform) - MANUAL ONLY'
 
+# AUTOMATIC DEPLOYMENT DISABLED
+# Uncomment the sections below to re-enable automatic deployment
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/deploy-infrastructure.yml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'terraform/**'
+  #     - '.github/workflows/deploy-infrastructure.yml'
+  # 
+  # pull_request:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'terraform/**'
+  #     - '.github/workflows/deploy-infrastructure.yml'
   
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/deploy-infrastructure.yml'
-  
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Manual trigger only
 
 env:
   TF_VERSION: '1.7.4'  # Updated to latest stable version
